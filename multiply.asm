@@ -1,0 +1,14 @@
+JMP 0x5
+d a=0x5
+d b=0x5
+d result=0x0
+d one=0x1
+LDA result
+ADD a
+STO result
+LDA b
+SUB one
+STO b
+JNE 0x5
+LDA result
+STP

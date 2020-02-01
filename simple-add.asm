@@ -1,0 +1,10 @@
+JMP 0x5
+d a = 0x2
+d b = 0x2
+d c = 0x0
+d d = 0x1
+LDA a
+ADD b
+STO c
+LDA c
+
