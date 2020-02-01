@@ -2,7 +2,7 @@
 
 Simple assembler for MU0
 
-See lionkor/MU0 for the emulator
+See [lionkor/MU0](https://github.com/lionkor/MU0) for the emulator
 
 
 ## How to build
