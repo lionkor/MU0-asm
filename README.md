@@ -29,7 +29,7 @@ ADD S   Add mem[S] to ACC
 SUB S   Subtract mem[S] from ACC
 JMP S   Jump to mem[S] (pc := mem[S])
 JGE S   Jump to mem[S] (pc := mem[S]) if ACC >= 0
-JNE S   Jump to mem[S] (pc := mem[S]) if ACC == 0
+JNE S   Jump to mem[S] (pc := mem[S]) if ACC != 0
 STP     Stop
 ```
 
