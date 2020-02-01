@@ -54,7 +54,7 @@ ADD b
 STO result
 STP
 ```
-`JMP 0x4` jumps (absolute) to the 4th instruction.
+`JMP 0x4` jumps (absolute) to the 5th instruction (counting from 0, that's 4).
 The `d` declarations declare some data locations that we will use.
 Then we load a, add b, and store the result in `result`.
 Then we STP (stop), which hangs the CPU. When using my MU0 emulator, it will continuosly display the value in ACC, and that will be the result. We stop so that the ACC doesn't change.
