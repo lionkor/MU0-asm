@@ -70,8 +70,21 @@ void parse_data_segment(const String& line, const std::vector<String>& lines, st
     name_address_map.insert_or_assign(String::to_std_string(s.split('=')[0]), instrs.size() - 1);
 }
 
-void parse_line(const std::vector<String>& lines, std::size_t index) {
+// we parse as non-const-reference so we can trim out comments
+void parse_line(std::vector<String>& lines, std::size_t index) {
     instruction_t i { 0, 0 };
+
+    // skip full line comments
+    if (lines.at(index).trimmed().startswith("#")) {
+        return;
+    }
+
+    // trim out comments
+    if (lines.at(index).find('#') != lines.at(index).end()) {
+        // we found a comment start somewhere in the line
+        // so we just split it there and ignore the right side
+        lines.at(index) = lines.at(index).split('#')[0];
+    }
 
     if (lines.at(index).startswith("d ")) {
         parse_data_segment(lines.at(index).trimmed(), lines, index);
