@@ -19,7 +19,7 @@ You now have an executable `mu0asm` that you can pass an asm file as an argument
 
 It will compile it into the file `a.out`. You can then run it with my MU0 emulator (not included) with `./MU0 a.out`.
 
-## Syntax
+## Syntax (standard MU0 instruction set)
 
 Supported instructions:
 ```
@@ -58,3 +58,12 @@ STP
 The `d` declarations declare some data locations that we will use.
 Then we load a, add b, and store the result in `result`.
 Then we STP (stop), which hangs the CPU. When using my MU0 emulator, it will continuosly display the value in ACC, and that will be the result. We stop so that the ACC doesn't change.
+
+## Abstract instruction set extensions
+
+The following extensions are provided by this assembler but don't actually translate to MU0 instructions. Instead, these are "faked" with a little bit of magic!
+
+* Relative jumping:
+    All jump instructions usually require the jump location to be encoded in hex, such as `0x56`. Instead, you can also perform a relative jump by providing the argument as `+N` or `-N` instead. For example, you can jump "back" two instructions with `JMP -2`. 
+
+    Behind the scenes this is realized by simply calculating the absolute address and replacing the argument with it.
