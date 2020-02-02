@@ -67,7 +67,7 @@ Then we STP (stop), which hangs the CPU. When using my MU0 emulator, it will con
 
 ## Abstract instruction set extensions
 
-The following extensions are provided by this assembler but don't actually translate to MU0 instructions. Instead, these are "faked" with a little bit of magic!
+The following extensions are provided by this assembler but don't actually translate *directly* to MU0 instructions. Instead, these are "faked" with a little bit of magic!
 
 All of them are enabled and cannot be disabled, but can simply be ignored if one wishes to write "pure" MU0.
 
