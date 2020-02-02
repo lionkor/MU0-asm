@@ -1,4 +1,5 @@
 # modulo implementation
+# a % b = result
 JMP +6
 d x = 0xB
 d y = 0x6
