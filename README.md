@@ -21,6 +21,12 @@ It will compile it into the file `a.out`. You can then run it with my MU0 emulat
 
 ## Syntax (standard MU0 instruction set)
 
+You can write comments starting with `#`. Example:
+```
+# this is a comment
+LDA 0x5 # this is also a comment
+```
+
 Supported instructions:
 ```
 LDA S   Load mem[S] into ACC
