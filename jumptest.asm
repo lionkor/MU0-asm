@@ -1,0 +1,6 @@
+JMP +2
+d x=0x69
+JMP +2
+JMP -1
+LDA x
+JMP +0

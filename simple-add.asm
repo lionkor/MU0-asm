@@ -1,10 +1,9 @@
-JMP 0x5
-d a = 0x2
-d b = 0x2
-d c = 0x0
-d d = 0x1
+JMP 0x4
+d a = 0xA
+d b = 0x5
+d result = 0x0
 LDA a
-ADD b
-STO c
-LDA c
-
+SUB b
+STO result
+LDA result
+STP
