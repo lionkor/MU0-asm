@@ -63,7 +63,11 @@ Then we STP (stop), which hangs the CPU. When using my MU0 emulator, it will con
 
 The following extensions are provided by this assembler but don't actually translate to MU0 instructions. Instead, these are "faked" with a little bit of magic!
 
+All of them are enabled and cannot be disabled, but can simply be ignored if one wishes to write "pure" MU0.
+
 * Relative jumping:
     All jump instructions usually require the jump location to be encoded in hex, such as `0x56`. Instead, you can also perform a relative jump by providing the argument as `+N` or `-N` instead. For example, you can jump "back" two instructions with `JMP -2`. 
+
+    Note that you *cannot* use hex values here, although this will probably change later. This extension works for all jump instructions.
 
     Behind the scenes this is realized by simply calculating the absolute address and replacing the argument with it.
