@@ -2,6 +2,8 @@
 
 Simple assembler for MU0
 
+**currently undergoing a complete rewrite, on the `rewrite` branch**
+
 See [lionkor/MU0](https://github.com/lionkor/MU0) for the emulator
 
 
