@@ -1,4 +1,3 @@
-#include "Core.h"
 #include "String.h"
 #include <iostream>
 #include <iomanip>
@@ -6,6 +5,12 @@
 #include <vector>
 #include <sstream>
 #include <map>
+
+// error macro to report errors, using std::dec to avoid printing line in hex
+// since for some reason that can happen when x specifies it
+#define error(x) std::cerr << __FUNCTION__ << ":" << std::dec << __LINE__ << ": error: " << x << std::endl
+// macro to turn an expression into a string, for debugging purposes
+#define as_string(x) #x
 
 struct instruction_t {
     unsigned int S : 12;
@@ -17,7 +22,38 @@ static std::map<std::string, std::uint16_t> name_address_map;
 static std::map<std::string, std::uint16_t> label_address_map;
 static std::uint16_t                        last_calling_location;
 
-unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::size_t index) {
+enum Instr : std::uint8_t
+{
+    LDA = 0b0000,
+    STO = 0b0001,
+    ADD = 0b0010,
+    SUB = 0b0011,
+    JMP = 0b0100,
+    JGE = 0b0101,
+    JNE = 0b0110,
+    STP = 0b0111,
+    END_STD_INSTR_SET, // less than this means it is a standard instruction
+    // extended instr_set
+    CALL,
+    RET,
+};
+
+class Parser
+{
+public:
+    Parser(const std::string& filename) {
+        std::ifstream file(filename, std::ios::binary | std::ios::in);
+        if (!file.is_open()) {
+            error("file " << filename << " not found");
+        }
+    }
+
+protected:
+    std::map<std::string, std::uint16_t> name_address_map;
+    std::map<std::string, std::uint16_t> label_address_map;
+};
+
+static unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::size_t index) {
     if (str == "lda") {
         return 0b0000;
     } else if (str == "sto") {
@@ -40,7 +76,7 @@ unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::
     }
 }
 
-unsigned parse_S(const String& str, const std::vector<String>& lines, std::size_t index) {
+static unsigned parse_S(const String& str, const std::vector<String>& lines, std::size_t index) {
     if (!str.startswith("0x") && !str.startswith(">")
         && (lines.at(index).to_lower().startswith("jmp")
             || lines.at(index).to_lower().startswith("jne")
@@ -70,7 +106,7 @@ unsigned parse_S(const String& str, const std::vector<String>& lines, std::size_
     return i;
 }
 
-void parse_data_segment(const String& line, const std::vector<String>& lines, std::size_t index) {
+static void parse_data_segment(const String& line, const std::vector<String>& lines, std::size_t index) {
     // d test = 0x5
     String s = line.substring(line.begin() + 2, line.end());
     std::cout << "data s: " << s << std::endl;
@@ -86,7 +122,7 @@ void parse_data_segment(const String& line, const std::vector<String>& lines, st
 }
 
 // we parse as non-const-reference so we can trim out comments
-void parse_line(std::vector<String>& lines, std::size_t index) {
+static void parse_line(std::vector<String>& lines, std::size_t index) {
     instruction_t i { 0, 0 };
 
     // skip full line comments
@@ -126,7 +162,7 @@ void parse_line(std::vector<String>& lines, std::size_t index) {
     instrs.push_back(i);
 }
 
-std::size_t count_instructions_until_index(const std::vector<String>& lines, std::size_t index) {
+static std::size_t count_instructions_until_index(const std::vector<String>& lines, std::size_t index) {
     std::size_t instr_count = 0;
     for (std::size_t i = 0; i < index; ++i) {
         String str = lines.at(i);
@@ -139,7 +175,7 @@ std::size_t count_instructions_until_index(const std::vector<String>& lines, std
     return instr_count;
 }
 
-std::size_t count_indices_until_instruction_number(const std::vector<String>& lines, std::size_t instr_count) {
+static std::size_t count_indices_until_instruction_number(const std::vector<String>& lines, std::size_t instr_count) {
     std::size_t i              = 0;
     std::size_t my_instr_count = 0;
     for (; my_instr_count < instr_count && instr_count < lines.size() && i < instr_count; ++i) {
@@ -153,7 +189,7 @@ std::size_t count_indices_until_instruction_number(const std::vector<String>& li
     return i;
 }
 
-void resolve_subroutines(std::vector<String>& lines, std::size_t start_index) {
+static void resolve_subroutines(std::vector<String>& lines, std::size_t start_index) {
     std::size_t instr_count = 0;
     for (std::size_t i = start_index; i < lines.size(); ++i) {
         String& str = lines.at(i);
@@ -193,6 +229,8 @@ int main(int argc, char** argv) {
     if (argc == 1) {
         return -1;
     }
+
+    Parser parser(argv[1]);
 
     String filename(argv[1]);
 

@@ -1,1 +1,2 @@
 -I./String/include
+-std=c++17
