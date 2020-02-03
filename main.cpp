@@ -1,3 +1,4 @@
+#include "Core.h"
 #include "String.h"
 #include <iostream>
 #include <iomanip>
@@ -14,6 +15,7 @@ struct instruction_t {
 static std::vector<instruction_t>           instrs;
 static std::map<std::string, std::uint16_t> name_address_map;
 static std::map<std::string, std::uint16_t> label_address_map;
+static std::uint16_t                        last_calling_location;
 
 unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::size_t index) {
     if (str == "lda") {
@@ -33,7 +35,7 @@ unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::
     } else if (str == "stp") {
         return 0b0111; // STP
     } else {
-        std::cout << "UNKNOWN INSTRUCTION: " << str << std::endl;
+        std::cout << "UNKNOWN INSTRUCTION: '" << str << "'" << std::endl;
         return 0b1111;
     }
 }
@@ -124,6 +126,67 @@ void parse_line(std::vector<String>& lines, std::size_t index) {
     instrs.push_back(i);
 }
 
+std::size_t count_instructions_until_index(const std::vector<String>& lines, std::size_t index) {
+    std::size_t instr_count = 0;
+    for (std::size_t i = 0; i < index; ++i) {
+        String str = lines.at(i);
+        if (!str.trimmed().empty()
+            && !str.startswith("#")
+            && !str.startswith(">")) {
+            ++instr_count;
+        }
+    }
+    return instr_count;
+}
+
+std::size_t count_indices_until_instruction_number(const std::vector<String>& lines, std::size_t instr_count) {
+    std::size_t i = 0;
+    for (; instr_count < lines.size() && i < instr_count;) {
+        String str = lines.at(i);
+        if (!str.trimmed().empty()
+            && !str.startswith("#")
+            && !str.startswith(">")) {
+            ++instr_count;
+        }
+    }
+    return i;
+}
+
+void resolve_subroutines(std::vector<String>& lines, std::size_t start_index) {
+    std::size_t instr_count = 0;
+    for (std::size_t i = start_index; i < lines.size(); ++i) {
+        String& str = lines.at(i);
+        if (!str.trimmed().empty()
+            && !str.startswith("#")
+            && !str.startswith(">")) {
+            ++instr_count;
+        }
+        if (str.to_lower().startswith("call")) {
+            auto label    = str.split(' ').at(1);
+            auto location = label_address_map.at(std::string(label.c_str() + 1));
+
+            std::stringstream ss;
+            ss << location;
+            std::string s;
+            ss >> std::hex >> s;
+            std::cout << "found subroutine call: '" << str;
+            str = String((std::string("JMP 0x") + s).c_str());
+            std::cout << "', replaced with '" << str << "'" << std::endl;
+            last_calling_location = instr_count;
+            // find next RET
+            for (std::size_t k = count_indices_until_instruction_number(lines, location); k < lines.size(); ++k) {
+                String& str = lines.at(k);
+                if (str.to_lower().startswith("ret")) {
+                    std::cout << "found subroutine ret: '" << str;
+                    str = String::format("JMP 0x", HexFormat<std::uint16_t>(last_calling_location));
+                    std::cout << "', replaced with '" << str << "'" << std::endl;
+                    break;
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc == 1) {
         return -1;
@@ -139,7 +202,7 @@ int main(int argc, char** argv) {
         std::string s;
         std::getline(file, s);
         String current_line = s.c_str();
-        if (!current_line.empty()) {
+        if (!current_line.trimmed().empty()) {
             //parse_line(current_line);
             lines.push_back(current_line.trimmed());
         }
@@ -149,9 +212,9 @@ int main(int argc, char** argv) {
     // parse labels first
     std::size_t instr_count { 0 };
     for (std::size_t i = 0; i < lines.size(); ++i) {
-        auto& str = lines.at(i);
+        auto str = lines.at(i).trimmed();
         // FIXME: this will fall apart if we add more special line types
-        if (!str.trimmed().empty()
+        if (!str.empty()
             && !str.startswith("#")
             && !str.startswith(">")) {
             ++instr_count;
@@ -161,7 +224,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    // parse and compile
+    // parse calls & returns
+    //  we basically just fake subroutines by jumping around
+    resolve_subroutines(lines, 0);
+
+    // parse instructions and compile
     for (std::size_t i = 0; i < lines.size(); ++i) {
         parse_line(lines, i);
     }
