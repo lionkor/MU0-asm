@@ -13,6 +13,7 @@ struct instruction_t {
 
 static std::vector<instruction_t>           instrs;
 static std::map<std::string, std::uint16_t> name_address_map;
+static std::map<std::string, std::uint16_t> label_address_map;
 
 unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::size_t index) {
     if (str == "lda") {
@@ -29,23 +30,31 @@ unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::
         return 0b0101;
     } else if (str == "jne") {
         return 0b0110;
-    } else {
+    } else if (str == "stp") {
         return 0b0111; // STP
+    } else {
+        std::cout << "UNKNOWN INSTRUCTION: " << str << std::endl;
+        return 0b1111;
     }
 }
 
 unsigned parse_S(const String& str, const std::vector<String>& lines, std::size_t index) {
-    if (!str.startswith("0x")
+    if (!str.startswith("0x") && !str.startswith(">")
             && lines.at(index).to_lower().startswith("jmp")
         || lines.at(index).to_lower().startswith("jne")
         || lines.at(index).to_lower().startswith("jge")) {
         auto jmp_to = instrs.size() + std::stoi(str.c_str());
         std::cout << "relative jump parsed: jump to " << jmp_to << std::endl;
         return jmp_to;
-    } else if (!str.startswith("0x")) {
+    } else if (str.startswith(">")) { // this is REALLY shitty FIXME
+        auto label_addr = (*label_address_map.find(std::string(str.c_str() + 1))).second;
+        std::cout << "parse_S label: " << label_addr << std::endl;
+        return label_addr;
+    } else if (!str.startswith("0x")) { // this is even worse FIXME
         // must be a name
-        std::cout << "parse_S var: " << (*name_address_map.find(String::to_std_string(str))).second << std::endl;
-        return (*name_address_map.find(String::to_std_string(str))).second;
+        auto name_addr = (*name_address_map.find(String::to_std_string(str))).second;
+        std::cout << "parse_S var: " << name_addr << std::endl;
+        return name_addr;
     }
     std::stringstream ss;
     ss << std::hex << str.split('x')[1].c_str();
@@ -76,6 +85,11 @@ void parse_line(std::vector<String>& lines, std::size_t index) {
 
     // skip full line comments
     if (lines.at(index).trimmed().startswith("#")) {
+        return;
+    }
+
+    // skip labels since we already parsed them
+    if (lines.at(index).trimmed().startswith(">")) {
         return;
     }
 
@@ -127,6 +141,21 @@ int main(int argc, char** argv) {
         }
     } while (!file.eof());
     file.close();
+
+    // parse labels first
+    std::size_t instr_count { 0 };
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        auto& str = lines.at(i);
+        // FIXME: this will fall apart if we add more special line types
+        if (!str.trimmed().empty()
+            && !str.startswith("#")
+            && !str.startswith(">")) {
+            ++instr_count;
+        } else if (str.startswith(">")) {
+            std::cout << "found a label: " << str << std::endl;
+            label_address_map.insert_or_assign(std::string(str.c_str() + 1), instr_count);
+        }
+    }
 
     // parse and compile
     for (std::size_t i = 0; i < lines.size(); ++i) {
