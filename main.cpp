@@ -43,10 +43,14 @@ unsigned parse_S(const String& str, const std::vector<String>& lines, std::size_
             && lines.at(index).to_lower().startswith("jmp")
         || lines.at(index).to_lower().startswith("jne")
         || lines.at(index).to_lower().startswith("jge")) {
-        auto jmp_to = instrs.size() + std::stoi(str.c_str());
+        std::stringstream ss;
+        ss << str.c_str();
+        int i;
+        ss >> i;
+        auto jmp_to = instrs.size() + i;
         std::cout << "relative jump parsed: jump to " << jmp_to << std::endl;
         return jmp_to;
-    } else if (str.startswith(">")) { // this is REALLY shitty FIXME
+    } else if (!str.startswith("0x") && str.startswith(">")) { // this is REALLY shitty FIXME
         auto label_addr = (*label_address_map.find(std::string(str.c_str() + 1))).second;
         std::cout << "parse_S label: " << label_addr << std::endl;
         return label_addr;
@@ -137,7 +141,7 @@ int main(int argc, char** argv) {
         String current_line = s.c_str();
         if (!current_line.empty()) {
             //parse_line(current_line);
-            lines.push_back(current_line);
+            lines.push_back(current_line.trimmed());
         }
     } while (!file.eof());
     file.close();
