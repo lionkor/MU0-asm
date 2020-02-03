@@ -1,14 +1,31 @@
 #include "String.h"
 #include <iostream>
+#include <string>
 #include <iomanip>
 #include <fstream>
 #include <vector>
 #include <sstream>
+#include <algorithm>
 #include <map>
 
+// some ansi color codes
+//  (these should work in pretty much any terminal)
+#define ansi_reset "\u001b[0m"
+#define ansi_red "\u001b[31m"
 // error macro to report errors, using std::dec to avoid printing line in hex
-// since for some reason that can happen when x specifies it
-#define error(x) std::cerr << __FUNCTION__ << ":" << std::dec << __LINE__ << ": error: " << x << std::endl
+//  since for some reason that can happen when x specifies it
+#define error(x) std::cerr << __FUNCTION__ << ":" << std::dec << __LINE__ << ": " \
+                           << ansi_red << "error: " << ansi_reset << x << std::endl
+#define fatal(x) std::cerr << __FUNCTION__ << ":" << std::dec << __LINE__ << ": " \
+                           << ansi_red << "fatal: " << ansi_reset << x << std::endl
+#define log(x) std::cout << __FUNCTION__ << ":" << std::dec << __LINE__ << ": log: " \
+                         << x << std::endl
+// print error x and return ret, in a weird loop to prevent Wextra-semi or whatever
+#define error_ret(x, ret) \
+    do {                  \
+        error(x);         \
+        return ret;       \
+    } while (false)
 // macro to turn an expression into a string, for debugging purposes
 #define as_string(x) #x
 
@@ -22,6 +39,11 @@ static std::map<std::string, std::uint16_t> name_address_map;
 static std::map<std::string, std::uint16_t> label_address_map;
 static std::uint16_t                        last_calling_location;
 
+template<typename _T>
+_T abs(const _T& i) {
+    return i < 0 ? -i : i;
+}
+
 enum Instr : std::uint8_t
 {
     LDA = 0b0000,
@@ -33,24 +55,151 @@ enum Instr : std::uint8_t
     JNE = 0b0110,
     STP = 0b0111,
     END_STD_INSTR_SET, // less than this means it is a standard instruction
-    // extended instr_set
+    // extended instr set
     CALL,
     RET,
+    // misc
+    DATA,
+    INVALID,
 };
+
+
+static const std::map<std::string, Instr> g_name_instr_map = {
+    { "lda", Instr::LDA },
+    { "sto", Instr::STO },
+    { "add", Instr::ADD },
+    { "sub", Instr::SUB },
+    { "jmp", Instr::JMP },
+    { "jge", Instr::JGE },
+    { "jne", Instr::JNE },
+    { "stp", Instr::STP },
+    { "call", Instr::CALL },
+    { "ret", Instr::RET },
+    { "d", Instr::DATA },
+};
+
+struct instr_arg_pair_t {
+    Instr       instr;
+    std::string arg;
+};
+
+static inline Instr instr_from_name(const std::string& name) {
+    // convert to lowercase
+    std::string lower = name;
+    for (char& c : lower) {
+        c = std::tolower(c);
+    }
+    if (g_name_instr_map.find(lower) == g_name_instr_map.end()) {
+        error("unknown instruction '" << name << "'");
+        return Instr::INVALID;
+    }
+    return g_name_instr_map.at(lower);
+}
+
+static inline std::string name_from_instr(Instr i) {
+    auto iter = std::find_if(g_name_instr_map.begin(), g_name_instr_map.end(), [&](const auto& pair) -> bool {
+        return pair.second == i;
+    });
+    if (iter == g_name_instr_map.end()) {
+        return "(unknown instruction)";
+    }
+    return iter->first;
+}
+
+static std::string& trim_whitespace(std::string& s) {
+    // trim whitespace left
+    s = std::string(std::find_if_not(s.begin(), s.end(), [&](const char& c) -> bool {
+        return std::isspace(c);
+    }),
+        s.end());
+    // trim whitespace right
+    s.erase(std::find_if_not(s.rbegin(), s.rend(), [&](const char& c) -> bool {
+        return std::isspace(c);
+    }).base(),
+        s.end());
+    return s;
+}
+
+static bool instr_expects_arg(Instr i) {
+    // anything up to STP (not including STP) expects an argument
+    if (i < STP
+        || i == CALL
+        || i == DATA)
+        return true;
+    // anything else doesn't
+    //  but to make sure we log those, in case any slip through that shouldn't
+    log("(verbose) assuming that instr '" << name_from_instr(i) << "' expects no args");
+    return false;
+}
 
 class Parser
 {
 public:
     Parser(const std::string& filename) {
-        std::ifstream file(filename, std::ios::binary | std::ios::in);
+        std::ifstream file(filename, std::ios::in);
         if (!file.is_open()) {
-            error("file " << filename << " not found");
+            error("file '" << filename << "' not found");
+            m_invalid = true;
+            return;
         }
+
+        std::size_t line = 1;
+        do {
+            std::string s;
+            std::getline(file, s);
+            // trim comments
+            s.erase(std::find(s.begin(), s.end(), '#'), s.end());
+            trim_whitespace(s);
+            // ignore now-empty lines
+            if (s.empty()) {
+                ++line;
+                continue;
+            }
+            // split instr and arg
+            Instr       instr = instr_from_name(std::string(std::begin(s), std::find(s.begin(), s.end(), ' ')));
+            std::string arg   = "";
+            if (instr_expects_arg(instr)) {
+                if (std::find(s.begin(), s.end(), ' ') == s.end()) {
+                    error("source line " << line << ": argument expected for '" << s << "'");
+                    m_invalid = true;
+                    continue;
+                }
+                arg = s.substr(s.find_first_of(' ') + 1);
+            } else {
+                // ensure that there was no argument given to an instruction that does not expect one,
+                //  since this should never happen as this means that wrong assumptions have been made
+                if (std::find(s.begin(), s.end(), ' ') != s.end()) { // if there is a space
+                    auto trimmed = s.substr(s.find_first_of(' '));
+                    trim_whitespace(trimmed);
+                    if (!trimmed.empty()) { // if there are characters in the argument except whitespace (which has been trimmed)
+                        error("source line " << line << ": argument '" << trimmed << "' supplied to '" << name_from_instr(instr) << "' which does not expect an argument");
+                        m_invalid = true;
+                        continue;
+                    }
+                }
+            }
+            if (instr == Instr::INVALID) {
+                error("source line " << line << ": parsed instruction is unknown / invalid");
+                m_invalid = true;
+                continue;
+            }
+            instr_arg_pair_t pair { instr, arg };
+            log("source line " << line << ": parsed instr of pair: " << name_from_instr(instr) << " " << arg);
+            m_instr_arg_pairs.push_back(pair);
+            ++line;
+        } while (!file.eof());
+    }
+
+    bool invalid() const {
+        return m_invalid;
     }
 
 protected:
-    std::map<std::string, std::uint16_t> name_address_map;
-    std::map<std::string, std::uint16_t> label_address_map;
+    // flag is set when an error occurs
+    bool                                 m_invalid = false;
+    std::map<std::string, std::uint16_t> m_name_address_map;
+    std::map<std::string, std::uint16_t> m_label_address_map;
+    std::vector<instr_arg_pair_t>        m_instr_arg_pairs;
 };
 
 static unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::size_t index) {
@@ -231,6 +380,12 @@ int main(int argc, char** argv) {
     }
 
     Parser parser(argv[1]);
+    if (parser.invalid()) {
+        fatal("errors occurred during initial parsing.");
+        return -1;
+    }
+
+    return 0;
 
     String filename(argv[1]);
 
