@@ -50,7 +50,7 @@ This is the only way to get values into the program.
 `d` declarations **must** appear before the place where they are needed. They should be at the top of the file, with a JMP as the only instruction before them to jump past the data (since MU0 just starts executing at mem offset 0). Example:
 
 A simple adder, does a+b=result, in this case 5+10
-```
+```asm
 JMP 0x4
 d a = 0x5
 d b = 0xA
@@ -77,3 +77,16 @@ All of them are enabled and cannot be disabled, but can simply be ignored if one
     Note that you *cannot* use hex values here, although this will probably change later. This extension works for all jump instructions.
 
     Behind the scenes this is realized by simply calculating the absolute address and replacing the argument with it.
+
+* Labels & label jumping:
+    You can create labels with this syntax:
+    ```asm
+    >my_label
+    ```
+    They follow usual rules of naming, like no spaces, etc.
+    Labels can then be jumped to (this is the usual use-case):
+    ```asm
+    JMP >my_label
+    ```
+
+    You can jump to labels *anywhere* in the program.
