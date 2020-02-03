@@ -90,3 +90,30 @@ All of them are enabled and cannot be disabled, but can simply be ignored if one
     ```
 
     You can jump to labels *anywhere* in the program.
+
+* Subroutines
+    You can call labels (see above) as subroutines with the following syntax:
+    ```asm
+    CALL >my_label
+    ```
+    There is a *hard requirement* for the label to be followed *at some point* by a `RET` statement.
+    
+    The `CALL` will jump to the label, and then the RET will jump back to the point of calling, to the next instruction.
+    Example:
+    ```asm
+    JMP >start
+    # some data
+
+    >start
+        # some code
+        CALL >my_function
+        # more code
+
+    >my_function
+        # some code
+        RET
+    ```
+    
+    **Keep in mind** that currently there can only be **ONE** `RET` statement per subroutine. This is currently since the assembler doesn't follow the flow of the program, and will just quit looking after the first `RET`, leaving any potential other `RET` statements in the same subroutine completely unhandled, which is undefined behaviour. This *also applies* if both `RET` statements are mutually exclusive in the control flow. This is currently **not** supported.
+
+    Internally, subroutines are implemented by replacing the `CALL` with a jump to the label, then going to said label and looking for the next `RET` and replacing it with a jump back to the place where it was `CALL`-ed from. 
