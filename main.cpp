@@ -42,15 +42,15 @@ unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::
 
 unsigned parse_S(const String& str, const std::vector<String>& lines, std::size_t index) {
     if (!str.startswith("0x") && !str.startswith(">")
-            && lines.at(index).to_lower().startswith("jmp")
-        || lines.at(index).to_lower().startswith("jne")
-        || lines.at(index).to_lower().startswith("jge")) {
+        && (lines.at(index).to_lower().startswith("jmp")
+            || lines.at(index).to_lower().startswith("jne")
+            || lines.at(index).to_lower().startswith("jge"))) {
         std::stringstream ss;
         ss << str.c_str();
         int i;
         ss >> i;
         auto jmp_to = instrs.size() + i;
-        std::cout << "relative jump parsed: jump to " << jmp_to << std::endl;
+        std::cout << "relative jump parsed: jump to " << std::hex << jmp_to << std::endl;
         return jmp_to;
     } else if (!str.startswith("0x") && str.startswith(">")) { // this is REALLY shitty FIXME
         auto label_addr = (*label_address_map.find(std::string(str.c_str() + 1))).second;
@@ -111,7 +111,7 @@ void parse_line(std::vector<String>& lines, std::size_t index) {
         return;
     }
 
-    auto splits = lines.at(index).split(' ');
+    auto splits = lines.at(index).trimmed().split(' ');
     std::cout << "current line: " << lines.at(index) << std::endl;
     i.opcode = parse_opcode(splits.at(0).trimmed().to_lower(), lines, index);
     std::cout << "parsed opcode: 0x"
@@ -140,13 +140,14 @@ std::size_t count_instructions_until_index(const std::vector<String>& lines, std
 }
 
 std::size_t count_indices_until_instruction_number(const std::vector<String>& lines, std::size_t instr_count) {
-    std::size_t i = 0;
-    for (; instr_count < lines.size() && i < instr_count;) {
+    std::size_t i              = 0;
+    std::size_t my_instr_count = 0;
+    for (; my_instr_count < instr_count && instr_count < lines.size() && i < instr_count; ++i) {
         String str = lines.at(i);
         if (!str.trimmed().empty()
             && !str.startswith("#")
             && !str.startswith(">")) {
-            ++instr_count;
+            ++my_instr_count;
         }
     }
     return i;
@@ -176,6 +177,7 @@ void resolve_subroutines(std::vector<String>& lines, std::size_t start_index) {
             // find next RET
             for (std::size_t k = count_indices_until_instruction_number(lines, location); k < lines.size(); ++k) {
                 String& str = lines.at(k);
+                std::cout << "current line: " << str << std::endl;
                 if (str.to_lower().startswith("ret")) {
                     std::cout << "found subroutine ret: '" << str;
                     str = String::format("JMP 0x", HexFormat<std::uint16_t>(last_calling_location));
@@ -203,10 +205,10 @@ int main(int argc, char** argv) {
         std::getline(file, s);
         String current_line = s.c_str();
         if (!current_line.trimmed().empty()) {
-            //parse_line(current_line);
             lines.push_back(current_line.trimmed());
         }
     } while (!file.eof());
+
     file.close();
 
     // parse labels first
@@ -221,6 +223,7 @@ int main(int argc, char** argv) {
         } else if (str.startswith(">")) {
             std::cout << "found a label: " << str << std::endl;
             label_address_map.insert_or_assign(std::string(str.c_str() + 1), instr_count);
+            std::cout << " -> location: " << std::hex << instr_count << std::endl;
         }
     }
 
