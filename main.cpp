@@ -1,10 +1,12 @@
 #include "String.h"
+#include <cctype>
 #include <iostream>
 #include <string>
 #include <iomanip>
 #include <fstream>
 #include <vector>
 #include <sstream>
+#include <cassert>
 #include <algorithm>
 #include <map>
 
@@ -20,12 +22,7 @@
                            << ansi_red << "fatal: " << ansi_reset << x << std::endl
 #define log(x) std::cout << __FUNCTION__ << ":" << std::dec << __LINE__ << ": log: " \
                          << x << std::endl
-// print error x and return ret, in a weird loop to prevent Wextra-semi or whatever
-#define error_ret(x, ret) \
-    do {                  \
-        error(x);         \
-        return ret;       \
-    } while (false)
+
 // macro to turn an expression into a string, for debugging purposes
 #define as_string(x) #x
 
@@ -97,9 +94,10 @@ static inline Instr instr_from_name(const std::string& name) {
 }
 
 static inline std::string name_from_instr(Instr i) {
-    auto iter = std::find_if(g_name_instr_map.begin(), g_name_instr_map.end(), [&](const auto& pair) -> bool {
-        return pair.second == i;
-    });
+    auto iter = std::find_if(g_name_instr_map.begin(), g_name_instr_map.end(),
+        [&](const auto& pair) -> bool {
+            return pair.second == i;
+        });
     if (iter == g_name_instr_map.end()) {
         return "(unknown instruction)";
     }
@@ -130,6 +128,10 @@ static bool instr_expects_arg(Instr i) {
     //  but to make sure we log those, in case any slip through that shouldn't
     log("(verbose) assuming that instr '" << name_from_instr(i) << "' expects no args");
     return false;
+}
+
+static constexpr bool is_standard_instr(const Instr& i) {
+    return i < Instr::END_STD_INSTR_SET;
 }
 
 class Parser
@@ -171,8 +173,11 @@ public:
                 if (std::find(s.begin(), s.end(), ' ') != s.end()) { // if there is a space
                     auto trimmed = s.substr(s.find_first_of(' '));
                     trim_whitespace(trimmed);
-                    if (!trimmed.empty()) { // if there are characters in the argument except whitespace (which has been trimmed)
-                        error("source line " << line << ": argument '" << trimmed << "' supplied to '" << name_from_instr(instr) << "' which does not expect an argument");
+                    // if there are characters in the argument except whitespace (which has been trimmed)
+                    if (!trimmed.empty()) {
+                        error("source line " << line << ": argument '" << trimmed
+                                             << "' supplied to '" << name_from_instr(instr)
+                                             << "' which does not expect an argument");
                         m_invalid = true;
                         continue;
                     }
@@ -188,6 +193,160 @@ public:
             m_instr_arg_pairs.push_back(pair);
             ++line;
         } while (!file.eof());
+        log("parsing done");
+    }
+
+    // runs all parsing steps
+    void parse_all() {
+        for (auto& pair : m_instr_arg_pairs) {
+            instruction_t raw_instr;
+            if (is_standard_instr(pair.instr)) {
+                parse_standard(pair, raw_instr);
+            } else if (pair.instr == Instr::DATA) {
+                parse_data(pair, raw_instr);
+            } else if (pair.instr == Instr::CALL
+                       || pair.instr == Instr::RET) {
+                parse_subroutine(pair, raw_instr);
+            } else {
+                error("no parser found for '" << name_from_instr(pair.instr) << "'");
+                m_invalid = true;
+            }
+            m_instrs.push_back(raw_instr);
+        }
+    }
+
+    void write_to(const std::string& filename) {
+    }
+
+    void parse_data(const instr_arg_pair_t& pair, instruction_t& raw_instr) {
+        // should only be called on data
+        assert(pair.instr == Instr::DATA);
+        // this is handled earlier
+        assert(!pair.arg.empty());
+    }
+
+    void parse_standard(const instr_arg_pair_t& pair, instruction_t& raw_instr) {
+        switch (pair.instr) {
+        case LDA:
+            raw_instr.opcode = 0b0000;
+            break;
+        case STO:
+            raw_instr.opcode = 0b0001;
+            break;
+        case ADD:
+            raw_instr.opcode = 0b0010;
+            break;
+        case SUB:
+            raw_instr.opcode = 0b0011;
+            break;
+        case JMP:
+            raw_instr.opcode = 0b0100;
+            break;
+        case JGE:
+            raw_instr.opcode = 0b0101;
+            break;
+        case JNE:
+            raw_instr.opcode = 0b0110;
+            break;
+        case STP:
+            raw_instr.opcode = 0b0111;
+            break;
+        default:
+            // not reachable
+            assert(false);
+        }
+
+        if (!instr_expects_arg(pair.instr)) {
+            // early return for instructions without arguments
+            raw_instr.S = 0;
+            return;
+        }
+
+        assert(!pair.arg.empty());
+        if (arg_is_name(pair.arg)) {
+            parse_arg(pair.arg, raw_instr);
+        }
+    }
+
+    void parse_arg(const std::string& arg, instruction_t& raw_instr) {
+        switch (evaluate_number_format(arg)) {
+        case NumberFormat::None:
+            raw_instr.S = resolve_name(arg);
+            break;
+        case NumberFormat::Hex:
+            raw_instr.S = std::stoul(arg, nullptr, 16);
+            break;
+        case NumberFormat::Dec:
+            raw_instr.S = std::stoul(arg, nullptr, 10);
+            break;
+        case NumberFormat::Bin:
+            assert(false); // NOT IMPLEMENTED
+        default:
+            // not reachable
+            assert(false);
+        }
+    }
+
+    std::uint16_t
+
+        enum NumberFormat {
+            None,
+            Hex,
+            Dec,
+            Bin,
+        };
+
+    NumberFormat evaluate_number_format(const std::string& arg) {
+        // number formats:
+        //  - HEX: 0xN
+        //  - DEC: N
+        //  - BIN: 0bN // not supported (yet)
+
+        // FIXME: is this guaranteed to be already trimmed?
+        trim_whitespace(arg);
+        if (arg.find("0x") == 0) {
+            // it's probably hex
+            // we now check that the rest of it is only hex-digits.
+            // if we find something then we know it's not valid hex,
+            // which is an error since names also cannot start with a
+            // digit.
+            if (std::find_if_not(arg.begin() + 2, arg.end(), [&](auto& c) {
+                    return std::isxdigit(c);
+                })
+                == arg.end()) {
+                error("argument '" << arg << "' starts with '0x' like "
+                                   << " a hex number, but isn't valid hex.");
+                m_invalid = true;
+                return NumberFormat::None;
+            }
+            // now we know it's definitely hex
+            return NumberFormat::Hex;
+        } else if (std::isdigit(arg.at(0))) {
+            // it's probably dec
+            if (std::find_if_not(arg.begin(), arg.end(), [&](auto& c) {
+                    return std::isdigit(c);
+                })
+                == arg.end()) {
+                error("argument '" << arg << "' starts with a digit like "
+                                   << "a decimal number, but is not a "
+                                   << "valid decimal number format.");
+                m_invalid = true;
+                return NumberFormat::None;
+            }
+            // we are pretty sure it's decimal now
+            return NumberFormat::Dec;
+        } else {
+            return NumberFormat::None;
+        }
+    }
+
+    void parse_number(const std::string& arg, instruction_t& raw_instr) {
+    }
+
+    void parse_subroutine(const instr_arg_pair_t& pair) {
+    }
+
+    void resolve_name(const std::string& name) {
     }
 
     bool invalid() const {
@@ -200,6 +359,7 @@ protected:
     std::map<std::string, std::uint16_t> m_name_address_map;
     std::map<std::string, std::uint16_t> m_label_address_map;
     std::vector<instr_arg_pair_t>        m_instr_arg_pairs;
+    std::vector<instruction_t>           m_instrs;
 };
 
 static unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::size_t index) {
@@ -383,7 +543,11 @@ int main(int argc, char** argv) {
     if (parser.invalid()) {
         fatal("errors occurred during initial parsing.");
         return -1;
+    } else {
+        log("initial parsing ok");
     }
+
+    parser.parse_all();
 
     return 0;
 

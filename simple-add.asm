@@ -5,6 +5,6 @@ d a = 0xA # helpful comment
 LDA a
 # comment as well
 SUB b
-STO result
-LDA 
+sto result
+lda b
 STP
