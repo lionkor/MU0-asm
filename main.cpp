@@ -11,9 +11,10 @@
 #include <map>
 
 // some ansi color codes
-//  (these should work in pretty much any terminal)
 #define ansi_reset "\u001b[0m"
 #define ansi_red "\u001b[31m"
+#define ansi_gray "\u001b[38;5;8m"
+
 // error macro to report errors, using std::dec to avoid printing line in hex
 //  since for some reason that can happen when x specifies it
 #define error(x) std::cerr << __FUNCTION__ << ":" << std::dec << __LINE__ << ": " \
@@ -22,6 +23,8 @@
                            << ansi_red << "fatal: " << ansi_reset << x << std::endl
 #define log(x) std::cout << __FUNCTION__ << ":" << std::dec << __LINE__ << ": log: " \
                          << x << std::endl
+#define verbose(x) std::cout << ansi_gray << __FUNCTION__ << ":" << std::dec << __LINE__ << ": verbose: " \
+                             << x << ansi_reset << std::endl
 
 // macro to turn an expression into a string, for debugging purposes
 #define as_string(x) #x
@@ -84,7 +87,7 @@ static inline Instr instr_from_name(const std::string& name) {
     // convert to lowercase
     std::string lower = name;
     for (char& c : lower) {
-        c = std::tolower(c);
+        c = static_cast<char>(std::tolower(c));
     }
     if (g_name_instr_map.find(lower) == g_name_instr_map.end()) {
         error("unknown instruction '" << name << "'");
@@ -104,7 +107,8 @@ static inline std::string name_from_instr(Instr i) {
     return iter->first;
 }
 
-static std::string& trim_whitespace(std::string& s) {
+static std::string trim_whitespace(const std::string& to_trim) {
+    std::string s = to_trim;
     // trim whitespace left
     s = std::string(std::find_if_not(s.begin(), s.end(), [&](const char& c) -> bool {
         return std::isspace(c);
@@ -126,7 +130,7 @@ static bool instr_expects_arg(Instr i) {
         return true;
     // anything else doesn't
     //  but to make sure we log those, in case any slip through that shouldn't
-    log("(verbose) assuming that instr '" << name_from_instr(i) << "' expects no args");
+    verbose("assuming that instr '" << name_from_instr(i) << "' expects no args");
     return false;
 }
 
@@ -147,11 +151,12 @@ public:
 
         std::size_t line = 1;
         do {
+            // FIXME: This entire loop needs cleaning up
             std::string s;
             std::getline(file, s);
             // trim comments
             s.erase(std::find(s.begin(), s.end(), '#'), s.end());
-            trim_whitespace(s);
+            s = trim_whitespace(s);
             // ignore now-empty lines
             if (s.empty()) {
                 ++line;
@@ -169,10 +174,9 @@ public:
                 arg = s.substr(s.find_first_of(' ') + 1);
             } else {
                 // ensure that there was no argument given to an instruction that does not expect one,
-                //  since this should never happen as this means that wrong assumptions have been made
+                //  since this should never happen as this would mean that wrong assumptions were made
                 if (std::find(s.begin(), s.end(), ' ') != s.end()) { // if there is a space
-                    auto trimmed = s.substr(s.find_first_of(' '));
-                    trim_whitespace(trimmed);
+                    auto trimmed = trim_whitespace(s.substr(s.find_first_of(' ')));
                     // if there are characters in the argument except whitespace (which has been trimmed)
                     if (!trimmed.empty()) {
                         error("source line " << line << ": argument '" << trimmed
@@ -223,9 +227,27 @@ public:
         assert(pair.instr == Instr::DATA);
         // this is handled earlier
         assert(!pair.arg.empty());
+        // check for format 'name=N'
+        if (pair.arg.find('=') == std::string::npos) {
+            error("invalid format for data: '" << pair.arg << "', must be of format 'name=N'");
+            m_invalid = true;
+            return;
+        }
+        std::string name = pair.arg.substr(0, pair.arg.find('='));
+        std::string rhs  = pair.arg.substr(pair.arg.find('='));
+
+        if (name.empty()) {
+            error("in argument '" << pair.arg << "' to data: name cannot be empty");
+            m_invalid = true;
+        }
+        if (rhs.empty()) {
+            error("in argument '" << pair.arg << "' to data: right hand side cannot be empty");
+            m_invalid = true;
+        }
     }
 
     void parse_standard(const instr_arg_pair_t& pair, instruction_t& raw_instr) {
+        // FIXME: This can probably be a map
         switch (pair.instr) {
         case LDA:
             raw_instr.opcode = 0b0000;
@@ -251,7 +273,11 @@ public:
         case STP:
             raw_instr.opcode = 0b0111;
             break;
-        default:
+        case CALL:
+        case RET:
+        case DATA:
+        case INVALID:
+        case END_STD_INSTR_SET:
             // not reachable
             assert(false);
         }
@@ -261,40 +287,43 @@ public:
             raw_instr.S = 0;
             return;
         }
-
+        // sanity check
         assert(!pair.arg.empty());
-        if (arg_is_name(pair.arg)) {
-            parse_arg(pair.arg, raw_instr);
-        }
+        parse_arg(pair.arg, raw_instr);
     }
 
     void parse_arg(const std::string& arg, instruction_t& raw_instr) {
         switch (evaluate_number_format(arg)) {
         case NumberFormat::None:
             raw_instr.S = resolve_name(arg);
+            verbose(arg << " has number format None");
             break;
         case NumberFormat::Hex:
             raw_instr.S = std::stoul(arg, nullptr, 16);
+            verbose(arg << " has number format Hex");
             break;
         case NumberFormat::Dec:
             raw_instr.S = std::stoul(arg, nullptr, 10);
+            verbose(arg << " has number format Dec");
             break;
         case NumberFormat::Bin:
-            assert(false); // NOT IMPLEMENTED
+            error("binary number format is not yet implemented.");
+            m_invalid = true;
+            break;
         default:
             // not reachable
             assert(false);
         }
     }
 
-    std::uint16_t
 
-        enum NumberFormat {
-            None,
-            Hex,
-            Dec,
-            Bin,
-        };
+    enum NumberFormat
+    {
+        None,
+        Hex,
+        Dec,
+        Bin,
+    };
 
     NumberFormat evaluate_number_format(const std::string& arg) {
         // number formats:
@@ -302,16 +331,15 @@ public:
         //  - DEC: N
         //  - BIN: 0bN // not supported (yet)
 
-        // FIXME: is this guaranteed to be already trimmed?
-        trim_whitespace(arg);
         if (arg.find("0x") == 0) {
             // it's probably hex
             // we now check that the rest of it is only hex-digits.
             // if we find something then we know it's not valid hex,
             // which is an error since names also cannot start with a
             // digit.
-            if (std::find_if_not(arg.begin() + 2, arg.end(), [&](auto& c) {
-                    return std::isxdigit(c);
+            if (std::find_if(arg.begin() + 2, arg.end(), [&](auto& c) {
+                    // isxdigit returns 0 if c IS valid hex char
+                    return std::isxdigit(static_cast<unsigned char>(c)) != 0;
                 })
                 == arg.end()) {
                 error("argument '" << arg << "' starts with '0x' like "
@@ -323,8 +351,8 @@ public:
             return NumberFormat::Hex;
         } else if (std::isdigit(arg.at(0))) {
             // it's probably dec
-            if (std::find_if_not(arg.begin(), arg.end(), [&](auto& c) {
-                    return std::isdigit(c);
+            if (std::find_if(arg.begin(), arg.end(), [&](auto& c) {
+                    return std::isdigit(c) != 0;
                 })
                 == arg.end()) {
                 error("argument '" << arg << "' starts with a digit like "
@@ -343,10 +371,11 @@ public:
     void parse_number(const std::string& arg, instruction_t& raw_instr) {
     }
 
-    void parse_subroutine(const instr_arg_pair_t& pair) {
+    void parse_subroutine(const instr_arg_pair_t& pair, instruction_t& raw_instr) {
     }
 
-    void resolve_name(const std::string& name) {
+    std::uint16_t resolve_name(const std::string& name) {
+        return 0;
     }
 
     bool invalid() const {

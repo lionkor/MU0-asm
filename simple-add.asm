@@ -4,7 +4,8 @@ d a = 0xA # helpful comment
     d result = 0x0 # indented line with comment
 LDA a
 # comment as well
-SUB b
-sto result
+    SUB b # commeting the heck out of it
+    sto result
 lda b
+lda 153 # this isn't hex!
 STP
