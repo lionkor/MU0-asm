@@ -29,6 +29,9 @@
 // macro to turn an expression into a string, for debugging purposes
 #define as_string(x) #x
 
+// will be padded by the compiler, but we cannot explicitly
+//  pad this as we may cast between this and std::uint16_t at
+//  some point.
 struct instruction_t {
     unsigned int S : 12;
     unsigned int opcode : 4;
@@ -138,6 +141,11 @@ static constexpr bool is_standard_instr(const Instr& i) {
     return i < Instr::END_STD_INSTR_SET;
 }
 
+struct DataInfo {
+    std::uint16_t address;
+    std::uint16_t value;
+};
+
 class Parser
 {
 public:
@@ -202,12 +210,21 @@ public:
 
     // runs all parsing steps
     void parse_all() {
-        for (auto& pair : m_instr_arg_pairs) {
+        // first parse data segments
+        for (std::uint16_t i = 0; i < m_instr_arg_pairs.size(); ++i) {
+            auto pair = m_instr_arg_pairs.at(i);
+            if (pair.instr == Instr::DATA) {
+                parse_data(pair, i);
+            }
+        }
+        for (std::uint16_t i = 0; i < m_instr_arg_pairs.size(); ++i) {
+            auto pair = m_instr_arg_pairs.at(i);
+
             instruction_t raw_instr;
             if (is_standard_instr(pair.instr)) {
                 parse_standard(pair, raw_instr);
             } else if (pair.instr == Instr::DATA) {
-                parse_data(pair, raw_instr);
+                write_data_segment(i, raw_instr);
             } else if (pair.instr == Instr::CALL
                        || pair.instr == Instr::RET) {
                 parse_subroutine(pair, raw_instr);
@@ -219,10 +236,45 @@ public:
         }
     }
 
-    void write_to(const std::string& filename) {
+    bool write_to(const std::string& filename) {
+        // doing this with fstreams is hacky, so we do it the C-way for now
+        //  ... although suggestions on making this more safe are welcome
+        FILE* fp = fopen(filename.c_str(), "wb");
+
+        if (!fp) {
+            error("file could not be openend for write: '" << filename << "'. error reported as: '");
+            perror("fopen");
+            return false;
+        }
+
+        for (const auto& i : m_instrs) {
+            verbose("writing: 0x" << std::setfill('0') << std::setw(4) << std::hex
+                                  << *reinterpret_cast<const std::uint16_t*>(&i));
+            fwrite(&i, sizeof(std::uint16_t), 1, fp);
+        }
+
+        fclose(fp);
+        return true;
     }
 
-    void parse_data(const instr_arg_pair_t& pair, instruction_t& raw_instr) {
+    // writes a parsed data segment from the data map to the instr
+    void write_data_segment(std::uint16_t address, instruction_t& raw_instr) {
+        auto iter = std::find_if(m_data_map.begin(), m_data_map.end(),
+            [&](const auto& elem) -> bool {
+                return elem.second.address == address;
+            });
+        if (iter == m_data_map.end()) {
+            error("could not find address in data map (internal error)");
+            m_invalid = true;
+            return;
+        }
+        verbose("writing data '0x" << std::setfill('0') << std::setw(4) << std::hex
+                                   << iter->second.value << "' for data named '"
+                                   << iter->first << "'");
+        raw_instr = reinterpret_cast<instruction_t&>(iter->second.value);
+    }
+
+    void parse_data(const instr_arg_pair_t& pair, std::uint16_t address) {
         // should only be called on data
         assert(pair.instr == Instr::DATA);
         // this is handled earlier
@@ -234,16 +286,40 @@ public:
             return;
         }
         std::string name = pair.arg.substr(0, pair.arg.find('='));
-        std::string rhs  = pair.arg.substr(pair.arg.find('='));
+        std::string rhs;
+        // check if there even is a rhs (name + 1 is 'name='),
+        // otherwise the substr fails. if this fails then rhs is
+        // empty and this triggers an error a few lines down
+        if (name.size() + 1 < pair.arg.size())
+            rhs = pair.arg.substr(pair.arg.find('=') + 1);
+
+        name = trim_whitespace(name);
+        rhs  = trim_whitespace(rhs);
 
         if (name.empty()) {
             error("in argument '" << pair.arg << "' to data: name cannot be empty");
             m_invalid = true;
+            return;
         }
         if (rhs.empty()) {
             error("in argument '" << pair.arg << "' to data: right hand side cannot be empty");
             m_invalid = true;
+            return;
         }
+
+        // rhs needs to be a number
+        auto format = evaluate_number_format(rhs);
+        if (format == NumberFormat::None) {
+            error("in right hand side '" << rhs << "' in data argument '"
+                                         << pair.arg << "': right hand side has to be a value type (number)");
+            m_invalid = true;
+        }
+
+        DataInfo dat;
+        dat.value   = parse_number(rhs);
+        dat.address = address;
+
+        m_data_map.emplace(std::move(name), std::move(dat));
     }
 
     void parse_standard(const instr_arg_pair_t& pair, instruction_t& raw_instr) {
@@ -310,9 +386,6 @@ public:
             error("binary number format is not yet implemented.");
             m_invalid = true;
             break;
-        default:
-            // not reachable
-            assert(false);
         }
     }
 
@@ -368,14 +441,37 @@ public:
         }
     }
 
-    void parse_number(const std::string& arg, instruction_t& raw_instr) {
+    std::uint16_t parse_number(const std::string& arg) {
+        switch (evaluate_number_format(arg)) {
+        case NumberFormat::Hex:
+            return static_cast<std::uint16_t>(std::stoul(arg, nullptr, 16));
+            verbose(arg << " has number format Hex");
+            break;
+        case NumberFormat::Dec:
+            return static_cast<std::uint16_t>(std::stoul(arg, nullptr, 10));
+            verbose(arg << " has number format Dec");
+            break;
+        case NumberFormat::Bin:
+            // not implemented
+        case NumberFormat::None:
+            error("argument '" << arg << "' is not a number");
+            m_invalid = true;
+        }
+        return 0;
     }
 
     void parse_subroutine(const instr_arg_pair_t& pair, instruction_t& raw_instr) {
     }
 
     std::uint16_t resolve_name(const std::string& name) {
-        return 0;
+        auto found = m_data_map.find(name);
+        if (found == m_data_map.end()) {
+            error("name '" << name << "' could not be resolved to a data value. "
+                           << "it is likely that no data with this name has been defined");
+            m_invalid = true;
+            return 0;
+        }
+        return found->second.address;
     }
 
     bool invalid() const {
@@ -385,11 +481,13 @@ public:
 protected:
     // flag is set when an error occurs
     bool                                 m_invalid = false;
-    std::map<std::string, std::uint16_t> m_name_address_map;
+    std::map<std::string, DataInfo>      m_data_map;
     std::map<std::string, std::uint16_t> m_label_address_map;
     std::vector<instr_arg_pair_t>        m_instr_arg_pairs;
     std::vector<instruction_t>           m_instrs;
 };
+
+/*
 
 static unsigned parse_opcode(const String& str, const std::vector<String>& lines, std::size_t index) {
     if (str == "lda") {
@@ -562,6 +660,7 @@ static void resolve_subroutines(std::vector<String>& lines, std::size_t start_in
         }
     }
 }
+*/
 
 int main(int argc, char** argv) {
     if (argc == 1) {
@@ -578,8 +677,10 @@ int main(int argc, char** argv) {
 
     parser.parse_all();
 
-    return 0;
+    parser.write_to("a.out");
 
+    return 0;
+    /*
     String filename(argv[1]);
 
     std::ifstream file(filename.c_str());
@@ -622,14 +723,7 @@ int main(int argc, char** argv) {
         parse_line(lines, i);
     }
 
-    FILE* fp = fopen("a.out", "wb");
-
-    for (const auto& i : instrs) {
-        std::cout << "writing: 0x" << std::hex << *reinterpret_cast<const std::uint16_t*>(&i) << std::endl;
-        fwrite(&i, sizeof(std::uint16_t), 1, fp);
-    }
-
-    fclose(fp);
 
     return 0;
+*/
 }
