@@ -1,4 +1,3 @@
-#include "String.h"
 #include <cctype>
 #include <iostream>
 #include <string>
@@ -381,11 +380,11 @@ public:
             verbose(arg << " has number format None");
             break;
         case NumberFormat::Hex:
-            raw_instr.S = std::stoul(arg, nullptr, 16);
+            raw_instr.S = static_cast<std::uint16_t>(std::stoul(arg, nullptr, 16));
             verbose(arg << " has number format Hex");
             break;
         case NumberFormat::Dec:
-            raw_instr.S = std::stoul(arg, nullptr, 10);
+            raw_instr.S = static_cast<std::uint16_t>(std::stoul(arg, nullptr, 10));
             verbose(arg << " has number format Dec");
             break;
         case NumberFormat::Bin:
