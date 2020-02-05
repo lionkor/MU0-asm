@@ -7,6 +7,7 @@
 #include <sstream>
 #include <cassert>
 #include <algorithm>
+#include <cstring>
 #include <map>
 
 // some ansi color codes
@@ -20,10 +21,15 @@
                            << ansi_red << "error: " << ansi_reset << x << std::endl
 #define fatal(x) std::cerr << __FUNCTION__ << ":" << std::dec << __LINE__ << ": " \
                            << ansi_red << "fatal: " << ansi_reset << x << std::endl
+#if 1
 #define log(x) std::cout << __FUNCTION__ << ":" << std::dec << __LINE__ << ": log: " \
                          << x << std::endl
 #define verbose(x) std::cout << ansi_gray << __FUNCTION__ << ":" << std::dec << __LINE__ << ": verbose: " \
                              << x << ansi_reset << std::endl
+#else
+#define log(x)
+#define verbose(x)
+#endif
 
 // macro to turn an expression into a string, for debugging purposes
 #define nameof(x) #x
@@ -62,9 +68,9 @@ enum Instr : std::uint8_t
     RET,
     // misc
     DATA,
+    LABEL,
     INVALID,
 };
-
 
 static const std::map<std::string, Instr> g_name_instr_map = {
     { "lda", Instr::LDA },
@@ -78,7 +84,13 @@ static const std::map<std::string, Instr> g_name_instr_map = {
     { "call", Instr::CALL },
     { "ret", Instr::RET },
     { "d", Instr::DATA },
+    { ".label", Instr::LABEL }
 };
+
+namespace Prefix {
+static constexpr char VAR[]   = "$";
+static constexpr char LABEL[] = ".";
+}
 
 struct instr_arg_pair_t {
     Instr       instr;
@@ -90,6 +102,9 @@ static inline Instr instr_from_name(const std::string& name) {
     std::string lower = name;
     for (char& c : lower) {
         c = static_cast<char>(std::tolower(c));
+    }
+    if (name.substr(0, std::strlen(Prefix::LABEL)) == Prefix::LABEL) {
+        return Instr::LABEL;
     }
     if (g_name_instr_map.find(lower) == g_name_instr_map.end()) {
         error("unknown instruction '" << name << "'");
@@ -156,7 +171,8 @@ public:
             return;
         }
 
-        std::size_t line_nr = 1;
+        std::size_t line_nr  = 1;
+        std::size_t instr_nr = 0;
         do {
             // FIXME: This entire loop needs cleaning up
             std::string s;
@@ -170,7 +186,11 @@ public:
                 continue;
             }
             // split instr and arg
-            Instr       instr = instr_from_name(std::string(std::begin(s), std::find(s.begin(), s.end(), ' ')));
+            Instr instr = instr_from_name(std::string(std::begin(s), std::find(s.begin(), s.end(), ' ')));
+            if (instr == Instr::LABEL) {
+                parse_label(s, instr_nr);
+            }
+            instr_nr++;
             std::string arg;
             if (!extract_arg(instr, s, line_nr, arg))
                 continue;
@@ -230,6 +250,9 @@ public:
                 parse_standard(pair, raw_instr);
             } else if (pair.instr == Instr::DATA) {
                 write_data_segment(i, raw_instr);
+            } else if (pair.instr == Instr::LABEL) {
+                // already handled, early breakout
+                continue;
             } else if (pair.instr == Instr::CALL
                        || pair.instr == Instr::RET) {
                 parse_subroutine(pair, raw_instr);
@@ -277,6 +300,19 @@ public:
                                    << iter->second.value << "' for data named '"
                                    << iter->first << "'");
         raw_instr = reinterpret_cast<instruction_t&>(iter->second.value);
+    }
+
+    void parse_label(const std::string& s, std::uint16_t address) {
+        std::string s_trimmed = trim_whitespace(s);
+        s_trimmed             = s_trimmed.substr(std::strlen(Prefix::LABEL));
+        auto iter             = s_trimmed.find(':');
+        if (iter == std::string::npos) {
+            error("label declaration '" << s << "' expects ':' at the end");
+            m_invalid = true;
+            return;
+        }
+        s_trimmed = s_trimmed.substr(0, s_trimmed.size() - 1);
+        m_label_map.emplace(std::move(s_trimmed), std::move(address));
     }
 
     void parse_data(const instr_arg_pair_t& pair, std::uint16_t address) {
@@ -331,33 +367,21 @@ public:
         // FIXME: This can probably be a map
         switch (pair.instr) {
         case LDA:
-            raw_instr.opcode = 0b0000;
-            break;
         case STO:
-            raw_instr.opcode = 0b0001;
-            break;
         case ADD:
-            raw_instr.opcode = 0b0010;
-            break;
         case SUB:
-            raw_instr.opcode = 0b0011;
-            break;
         case JMP:
-            raw_instr.opcode = 0b0100;
-            break;
         case JGE:
-            raw_instr.opcode = 0b0101;
-            break;
         case JNE:
-            raw_instr.opcode = 0b0110;
-            break;
         case STP:
-            raw_instr.opcode = 0b0111;
+            // Instr enum defines these as their opcode values already
+            raw_instr.opcode = static_cast<std::uint16_t>(pair.instr);
             break;
         case CALL:
         case RET:
         case DATA:
         case INVALID:
+        case LABEL:
         case END_STD_INSTR_SET:
             // not reachable
             assert(false);
@@ -466,17 +490,30 @@ public:
     }
 
     void parse_subroutine(const instr_arg_pair_t& pair, instruction_t& raw_instr) {
+        error("not implemented");
+        m_invalid = true;
     }
 
     std::uint16_t resolve_name(const std::string& name) {
-        auto found = m_data_map.find(name);
-        if (found == m_data_map.end()) {
-            error("name '" << name << "' could not be resolved to a data value. "
-                           << "it is likely that no data with this name has been defined");
+        if (name.find(Prefix::VAR) == std::string::npos
+            && name.find(Prefix::LABEL) == std::string::npos) {
+            error("usage of name '" << name << "' requires prefix '" << Prefix::VAR << "'");
             m_invalid = true;
             return 0;
         }
-        return found->second.address;
+        auto found = m_data_map.find(name.substr(std::strlen(Prefix::VAR)));
+        if (found != m_data_map.end()) {
+            return found->second.address;
+        }
+        auto other_found = m_label_map.find(name.substr(std::strlen(Prefix::LABEL)));
+        if (other_found != m_label_map.end()) {
+            return other_found->second;
+        }
+
+        // at this point the name could not be resolved
+        error("name '" << name << "' could not be resolved as data or label");
+        m_invalid = true;
+        return 0;
     }
 
     bool invalid() const {
@@ -487,7 +524,7 @@ protected:
     // flag is set when an error occurs
     bool                                 m_invalid = false;
     std::map<std::string, DataInfo>      m_data_map;
-    std::map<std::string, std::uint16_t> m_label_address_map;
+    std::map<std::string, std::uint16_t> m_label_map;
     std::vector<instr_arg_pair_t>        m_instr_arg_pairs;
     std::vector<instruction_t>           m_instrs;
 };
