@@ -27,7 +27,7 @@
                              << x << ansi_reset << std::endl
 
 // macro to turn an expression into a string, for debugging purposes
-#define as_string(x) #x
+#define nameof(x) #x
 
 // will be padded by the compiler, but we cannot explicitly
 //  pad this as we may cast between this and std::uint16_t at
@@ -157,7 +157,7 @@ public:
             return;
         }
 
-        std::size_t line = 1;
+        std::size_t line_nr = 1;
         do {
             // FIXME: This entire loop needs cleaning up
             std::string s;
@@ -167,45 +167,51 @@ public:
             s = trim_whitespace(s);
             // ignore now-empty lines
             if (s.empty()) {
-                ++line;
+                ++line_nr;
                 continue;
             }
             // split instr and arg
             Instr       instr = instr_from_name(std::string(std::begin(s), std::find(s.begin(), s.end(), ' ')));
-            std::string arg   = "";
-            if (instr_expects_arg(instr)) {
-                if (std::find(s.begin(), s.end(), ' ') == s.end()) {
-                    error("source line " << line << ": argument expected for '" << s << "'");
-                    m_invalid = true;
-                    continue;
-                }
-                arg = s.substr(s.find_first_of(' ') + 1);
-            } else {
-                // ensure that there was no argument given to an instruction that does not expect one,
-                //  since this should never happen as this would mean that wrong assumptions were made
-                if (std::find(s.begin(), s.end(), ' ') != s.end()) { // if there is a space
-                    auto trimmed = trim_whitespace(s.substr(s.find_first_of(' ')));
-                    // if there are characters in the argument except whitespace (which has been trimmed)
-                    if (!trimmed.empty()) {
-                        error("source line " << line << ": argument '" << trimmed
-                                             << "' supplied to '" << name_from_instr(instr)
-                                             << "' which does not expect an argument");
-                        m_invalid = true;
-                        continue;
-                    }
-                }
-            }
+            std::string arg;
+            if (!extract_arg(instr, s, line_nr, arg))
+                continue;
             if (instr == Instr::INVALID) {
-                error("source line " << line << ": parsed instruction is unknown / invalid");
+                error("source line " << line_nr << ": parsed instruction is unknown / invalid");
                 m_invalid = true;
                 continue;
             }
             instr_arg_pair_t pair { instr, arg };
-            log("source line " << line << ": parsed instr of pair: " << name_from_instr(instr) << " " << arg);
+            log("source line " << line_nr << ": parsed instr of pair: " << name_from_instr(instr) << " " << arg);
             m_instr_arg_pairs.push_back(pair);
-            ++line;
+            ++line_nr;
         } while (!file.eof());
         log("parsing done");
+    }
+
+    bool extract_arg(Instr instr, const std::string& line, std::size_t line_nr, std::string& arg) {
+        if (instr_expects_arg(instr)) {
+            if (std::find(line.begin(), line.end(), ' ') == line.end()) {
+                error("source line " << line_nr << ": argument expected for '" << line << "'");
+                m_invalid = true;
+                return false;
+            }
+            arg = line.substr(line.find_first_of(' ') + 1);
+        } else {
+            // ensure that there was no argument given to an instruction that does not expect one,
+            //  since this should never happen as this would mean that wrong assumptions were made
+            if (std::find(line.begin(), line.end(), ' ') != line.end()) { // if there is a space
+                auto trimmed = trim_whitespace(line.substr(line.find_first_of(' ')));
+                // if there are characters in the argument except whitespace (which has been trimmed)
+                if (!trimmed.empty()) {
+                    error("source line " << line_nr << ": argument '" << trimmed
+                                         << "' supplied to '" << name_from_instr(instr)
+                                         << "' which does not expect an argument");
+                    m_invalid = true;
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     // runs all parsing steps
