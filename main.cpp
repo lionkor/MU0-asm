@@ -189,6 +189,8 @@ public:
             Instr instr = instr_from_name(std::string(std::begin(s), std::find(s.begin(), s.end(), ' ')));
             if (instr == Instr::LABEL) {
                 parse_label(s, instr_nr);
+                ++line_nr;
+                continue;
             }
             instr_nr++;
             std::string arg;
