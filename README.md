@@ -51,14 +51,14 @@ This is the only way to get values into the program.
 
 A simple adder, does a+b=result, in this case 5+10
 ```asm
-JMP 0x4
+jmp 0x4
 d a = 0x5
 d b = 0xA
 d result = 0x0
-LDA a
-ADD b
-STO result
-STP
+lda $a
+add $b
+sto $result
+stp
 ```
 `JMP 0x4` jumps (absolute) to the 5th instruction (counting from 0, that's 4).
 The `d` declarations declare some data locations that we will use.
