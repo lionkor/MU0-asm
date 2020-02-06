@@ -1,5 +1,7 @@
 # `MU0-asm`
 
+**This is the rewrite branch.**
+
 Simple assembler for MU0
 
 See [lionkor/MU0](https://github.com/lionkor/MU0) for the emulator
@@ -7,7 +9,7 @@ See [lionkor/MU0](https://github.com/lionkor/MU0) for the emulator
 
 ## How to build
 
-1. Clone the repo recursively, with `git clone [URL] --recursive` and enter the directory.
+1. Clone the repo, with `git clone [URL]` and enter the directory. There is a submodule, but it's no longer a dependency and will be completely removed in the future, so don't worry about it.
 
 3. Go into the repo folder and run `cmake . && make`.
 
