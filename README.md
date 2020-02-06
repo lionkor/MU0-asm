@@ -94,6 +94,9 @@ All of them are enabled and cannot be disabled, but can simply be ignored if one
     You can jump to labels *anywhere* in the program.
 
 * Subroutines
+    
+    *this way of doing it is flawed and doesn't work if you call it from more than one place. the rewrite will address this.*
+        
     You can call labels (see above) as subroutines with the following syntax:
     ```asm
     CALL >my_label
