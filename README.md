@@ -83,7 +83,7 @@ All of them are enabled and cannot be disabled, but can simply be ignored if one
     You can jump to labels *anywhere* in the program.
     They must start with `.` and end with `:`.
 
-* Subroutines
+* Subroutines (not implemented yet in the rewrite)
     You can call labels (see above) as subroutines with the following syntax:
     ```asm
     call .my_label
