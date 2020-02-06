@@ -72,6 +72,7 @@ The following extensions are provided by this assembler but don't actually trans
 All of them are enabled and cannot be disabled, but can simply be ignored if one wishes to write "pure" MU0.
 
 * Labels & label jumping:
+    
     You can create labels with this syntax:
     ```asm
     .my_label:
@@ -84,29 +85,3 @@ All of them are enabled and cannot be disabled, but can simply be ignored if one
 
     You can jump to labels *anywhere* in the program.
     They must start with `.` and end with `:`.
-
-* Subroutines (not implemented yet in the rewrite)
-    You can call labels (see above) as subroutines with the following syntax:
-    ```asm
-    call .my_label
-    ```
-    There is a *hard requirement* for the label to be followed *at some point* by a `RET` statement.
-    
-    The `CALL` will jump to the label, and then the RET will jump back to the point of calling, to the next instruction.
-    Example:
-    ```asm
-    jmp .start
-    # some data
-
-    .start:
-        # some code
-        call .my_function
-        # more code
-
-    .my_function:
-        # some code
-        ret 
-    ```
-    
-
-    Internally, subroutines are implemented by replacing the `CALL` with a jump to the label, then going to said label and looking for the next `RET` and replacing it with a jump back to the place where it was `CALL`-ed from. 
