@@ -1,4 +1,5 @@
 #include <cctype>
+#include <sstream>
 #include <iostream>
 #include <string>
 #include <iomanip>
@@ -92,6 +93,7 @@ static constexpr char VAR[]   = "$";
 static constexpr char LABEL[] = ".";
 }
 
+
 struct instr_arg_pair_t {
     Instr       instr;
     std::string arg;
@@ -160,6 +162,20 @@ struct DataInfo {
     std::uint16_t value;
 };
 
+// hardcoded location in memory used for the value of pc
+// before a jump-into-subroutine (call). the location
+// remains usable as always if no calls are used.
+#define SUBR_PC_LOC "0xfff"
+// hardcoded location to hold the ACC contents while it's
+// being used to store the PC in SUBR_PC_LOC
+#define SUBR_ACC_LOC "0xffe"
+
+static std::string as_hex_string(std::uint16_t i) {
+    std::stringstream ss;
+    ss << "0x" << std::hex << i;
+    return ss.str();
+}
+
 class Parser
 {
 public:
@@ -170,9 +186,9 @@ public:
             m_invalid = true;
             return;
         }
+        std::size_t   line_nr  = 1;
+        std::uint16_t instr_nr = 0;
 
-        std::size_t line_nr  = 1;
-        std::size_t instr_nr = 0;
         do {
             // FIXME: This entire loop needs cleaning up
             std::string s;
@@ -187,12 +203,82 @@ public:
             }
             // split instr and arg
             Instr instr = instr_from_name(std::string(std::begin(s), std::find(s.begin(), s.end(), ' ')));
+            if (instr == Instr::CALL) {
+                // calls into subroutines are implemented by holding the PC before the jump
+                // in a data segment so we can jump back to it
+
+                // save acc in subr_acc_loc since we need acc momentarily and don't want to lose data from it
+                ++instr_nr;
+                verbose("PC: " << instr_nr);
+                m_instr_arg_pairs.push_back(instr_arg_pair_t { STO, SUBR_ACC_LOC });
+
+                // now we store the current PC in hex at some location
+                // since there is no immediate value instruction we have to hack together
+                // a temporary variable with a DATA segment which we jump over so it
+                // doesn't get executed.
+
+                // so we add the jump to skip ahead to the second instruction after the jmp
+                // to skip the data segment that's coming up
+                ++instr_nr;
+                verbose("PC: " << instr_nr);
+                verbose("instr: JMP " << as_hex_string(instr_nr + 1));
+                m_instr_arg_pairs.push_back(instr_arg_pair_t { JMP, as_hex_string(instr_nr + 1) });
+
+                // now we add the data segment to hold the PC to jump back to
+                ++instr_nr;
+                verbose("PC: " << instr_nr);
+                // offset to jump back to
+                std::uint16_t offset = 5;
+                // we need to use a name here, so we use `__pc__ADDRESS`, where `ADDRESS` is the PC we stored
+                std::string pc_store_name = std::string("__pc__") + as_hex_string(instr_nr + offset);
+                // let's make an instruction (hacky & wacky)
+                instruction_t instr_to_insert;
+                instr_to_insert.opcode     = static_cast<std::uint8_t>(JMP);
+                instr_to_insert.S          = instr_nr + offset;
+                std::string pc_store_instr = pc_store_name + "=" + as_hex_string(reinterpret_cast<std::uint16_t&>(instr_to_insert));
+                verbose("instr: " << nameof(pc_store_instr) << ": '" << pc_store_instr << "'");
+                m_instr_arg_pairs.push_back(instr_arg_pair_t { DATA, pc_store_instr });
+
+                // load the pc we want to jump to later
+                ++instr_nr;
+                verbose("PC: " << instr_nr);
+                m_instr_arg_pairs.push_back(instr_arg_pair_t { LDA, std::string(Prefix::VAR) + pc_store_name });
+
+                // store it in the pc location
+                ++instr_nr;
+                verbose("PC: " << instr_nr);
+                m_instr_arg_pairs.push_back(instr_arg_pair_t { STO, SUBR_PC_LOC });
+
+                // retore acc
+                ++instr_nr;
+                verbose("PC: " << instr_nr);
+                m_instr_arg_pairs.push_back(instr_arg_pair_t { LDA, SUBR_ACC_LOC });
+
+                // extracting the argument for the call instruction
+                std::string arg;
+                if (!extract_arg(instr, s, line_nr, arg)) {
+                    error("subroutine call argument is invalid (this is fatal)");
+                    m_invalid = true;
+                }
+                // add the original call instruction as jmp
+                ++instr_nr;
+                verbose("PC: " << instr_nr);
+                verbose("instr: jmp(call) " << arg);
+                m_instr_arg_pairs.push_back(instr_arg_pair_t { JMP, arg });
+                continue;
+            } else if (instr == Instr::RET) {
+                // only works if there was a call before and SUBR_PC_LOC is set
+                ++instr_nr;
+                verbose("PC: " << instr_nr);
+                m_instr_arg_pairs.push_back(instr_arg_pair_t { JMP, SUBR_PC_LOC });
+            }
             if (instr == Instr::LABEL) {
                 parse_label(s, instr_nr);
                 ++line_nr;
                 continue;
             }
             instr_nr++;
+            verbose("PC: " << instr_nr);
             std::string arg;
             if (!extract_arg(instr, s, line_nr, arg))
                 continue;
@@ -257,7 +343,8 @@ public:
                 continue;
             } else if (pair.instr == Instr::CALL
                        || pair.instr == Instr::RET) {
-                parse_subroutine(pair, raw_instr);
+                // already handled, early breakout
+                continue;
             } else {
                 error("no parser found for '" << name_from_instr(pair.instr) << "'");
                 m_invalid = true;
