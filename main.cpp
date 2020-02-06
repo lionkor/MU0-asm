@@ -228,7 +228,7 @@ public:
                 ++instr_nr;
                 verbose("PC: " << instr_nr);
                 // offset to jump back to
-                std::uint16_t offset = 5;
+                std::uint16_t offset = 4;
                 // we need to use a name here, so we use `__pc__ADDRESS`, where `ADDRESS` is the PC we stored
                 std::string pc_store_name = std::string("__pc__") + as_hex_string(instr_nr + offset);
                 // let's make an instruction (hacky & wacky)
