@@ -4,6 +4,8 @@
 
 Simple assembler for MU0
 
+**currently undergoing a complete rewrite, on the `rewrite` branch**
+
 See [lionkor/MU0](https://github.com/lionkor/MU0) for the emulator
 
 
@@ -84,4 +86,5 @@ All of them are enabled and cannot be disabled, but can simply be ignored if one
     ```
 
     You can jump to labels *anywhere* in the program.
+    
     They must start with `.` and end with `:`.
