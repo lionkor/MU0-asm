@@ -1,9 +1,10 @@
-JMP 0x4
-d a = 0xA
-d b = 0x5
-d result = 0x0
-LDA a
-SUB b
-STO result
-LDA result
-STP
+jmp 4
+d a = 16
+d b = 0x20
+d result = 0
+lda $a
+add $a
+add $b
+sto $result
+lda $result
+stp
