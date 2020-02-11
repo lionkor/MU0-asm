@@ -45,7 +45,7 @@ JGE S   Jump to mem[S] (pc := mem[S]) if ACC >= 0
 JNE S   Jump to mem[S] (pc := mem[S]) if ACC != 0
 STP     Stop
 ```
-Note: `JGE S` is useless in my MU0 assembler, as no negative numbers are supported.
+Note: `JGE S` is useless in my MU0 emulator, as no negative numbers are supported. The assembler will likely not understand negative numbers.
 
 `S` in this case might be any address in the space supported by MU0. `S` can be noted as hex `0xN` or decimal `N`.
 
